@@ -1,0 +1,62 @@
+import kineticstoolkit.lab as ktk
+import matplotlib.pyplot as plt
+import pandas as pd
+import numpy as np
+
+# 讀取CSV檔案
+file_path = "C:\\Users\\ASUS\\OneDrive\\桌面\\Filter_test\\EMG_filter_test.csv"
+data = pd.read_csv(file_path)
+
+# 取得時間與肌電訊號
+time = data.iloc[:, 0].values
+emg_signal = data.iloc[:, 1].values
+
+# 將資料轉為kineticstoolkit的TimeSeries格式
+ts_noisy = ktk.TimeSeries()
+ts_noisy.data = {"EMG": emg_signal}
+ts_noisy.time = time
+
+# 套用Band-pass濾波器（20到450 Hz）
+ts_filtered = ktk.filters.butter(ts_noisy, btype="bandpass", fc=[20, 450])
+
+# 整流（取絕對值）
+ts_filtered.data["EMG"] = np.abs(ts_filtered.data["EMG"])
+
+# 使用滑動視窗計算 RMS（Root-mean-square）包絡線
+# 資料取樣率為 2000Hz，視窗大小為 125ms，重疊為 62.5ms
+sampling_rate = 2000  # Hz
+window_duration_s = 0.125  # 秒
+step_duration_s = 0.0625    # 秒
+window_size = int(window_duration_s * sampling_rate)
+step_size = int(step_duration_s * sampling_rate)
+
+time_envelope = []
+rms_envelope = []
+
+for start in range(0, len(ts_filtered.data["EMG"]) - window_size + 1, step_size):
+    window = ts_filtered.data["EMG"][start:start + window_size]
+    rms_value = np.sqrt(np.mean(window**2))
+    rms_envelope.append(rms_value)
+    time_envelope.append(ts_filtered.time[start + window_size // 2])
+
+# 建立新的 TimeSeries 物件儲存 RMS 包絡線
+rms_ts = ktk.TimeSeries()
+rms_ts.time = np.array(time_envelope)
+rms_ts.data = {"Envelope": np.array(rms_envelope)}
+
+# 畫出原始訊號與 RMS 包絡線（不合併 TimeSeries）
+plt.figure(figsize=(10, 5))
+plt.plot(ts_noisy.time, ts_noisy.data["EMG"], label="Raw EMG")
+plt.plot(rms_ts.time, rms_ts.data["Envelope"], label="RMS Envelope (125ms window)", color="red")
+plt.title("EMG Signal and RMS Envelope")
+plt.xlabel("Time (s)")
+plt.ylabel("Amplitude")
+plt.legend()
+plt.tight_layout()
+plt.show()
+
+# 將時間軸與RMS包絡線輸出為CSV檔案
+output_df = pd.DataFrame({"Time": rms_ts.time, "RMS_Envelope": rms_ts.data["Envelope"]})
+output_csv_path = "C:\\Users\\ASUS\\OneDrive\\桌面\\Filter_test\\RMS_output.csv"
+output_df.to_csv(output_csv_path, index=False)
+print(f"RMS envelope 已儲存至: {output_csv_path}")
